@@ -1,0 +1,85 @@
+-module(pc).
+-compile(export_all).
+
+start() ->
+    % spawn the counter process
+    Counter = spawn(fun counter/0),
+
+    % spawn the sink process
+    Sink = spawn(fun() -> sink(Counter) end),
+
+    % spawn 10 consumers
+    [spawn(fun() -> consumer(Sink, 10) end) || _N <- lists:seq(1, 10)].
+
+
+%
+% The producer produces incrementing counter values
+%
+counter() ->
+    counter(0).
+
+counter(Value) ->
+    receive 
+	% Receive an increment counter order issued by a producer.
+	% Consumer is the Pid of the consumer who made the request
+	% to the producer.
+	{From, {increment, Consumer}} ->
+	    % Send the next value to the producer, together with the Consumer Pid
+	    From ! {self(), {value, Value + 1, Consumer}},
+	    counter(Value + 1)
+    end.
+	
+
+%
+% The sink first spawns N producers and then waits for messages from the
+% consumers. When it receives a message, forwards it to a randomly choosen
+% producer.
+%
+sink(Counter) ->
+    Pids = [spawn(fun() -> producer(Id, Counter) end) || Id <- lists:seq(1, 10)],
+    sink(Counter, Pids).
+
+sink(Counter, Pids) ->
+    receive
+	{From, request} ->
+	    % Choose a random producer and forward the request
+	    Nth = random:uniform(length(Pids)),
+	    ChoosenProducer = lists:nth(Nth, Pids),
+	    ChoosenProducer ! {From, request},
+	    sink(Counter, Pids)
+    end.
+    
+
+%
+% The producer receives a request, gets a new value from the counter
+% and finally responds to the consumer.
+%
+producer(Id, Counter) ->
+    receive
+	% Receive request from the consumer (actually, it comes from the sink, 
+	% but the producer doesn't need to know that)
+	{From, request} ->
+	    % Request a new Counter value
+	    Counter ! {self(), {increment, From}},
+            producer(Id, Counter);
+	% Receive Counter value - respond to the original consumer
+	{Counter, {value, Value, Consumer}} ->
+	    io:format("Produtor ~w produziu ~w~n", [Id, Value]),
+	    Consumer ! {self(), Value },
+	    producer(Id, Counter)
+    end.
+
+
+%
+% The consumer simply requests new values and prints them
+%
+consumer(_Sink, 0) -> 
+    void;
+consumer(Sink, Left) ->
+    Sink ! {self(), request},
+    receive
+	{_From, Response} ->
+	    io:format("Consumindo ~w~n", [Response]),
+            consumer(Sink, Left - 1)
+    end.
+    
