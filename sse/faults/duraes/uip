@@ -1,0 +1,82 @@
+#! /usr/bin/env ruby
+
+require 'open3'
+require 'ftools'
+
+
+def call_strace(file)
+  stdin, stdout, stderr = Open3.popen3("strace -cf sh #{file}")
+  stderr.readlines
+end
+
+
+def parse_strace_output(output)
+  first = output.index(output.find { |line| line =~ /------/ }) + 1
+  last = output.rindex(output.find { |line| line =~ /------/ }) - 1
+  
+  lines = output[first..last]
+  
+  syscalls = lines.map do |line|
+    
+    ignore, ignore, ignore, calls, *rest = line.split
+    
+    if rest.length == 1
+      syscall = rest.first
+    else
+      syscall = rest.last
+    end
+    
+    [syscall, calls]
+  end
+  
+  syscalls.sort { |a, b| a[1] <=> b[1] }.reverse
+end
+
+
+def get_syscall_address(syscall_name, asm_file_contents)
+  address = asm_file_contents.find { |line| !line.grep(/sys_#{syscall_name}.*>:/).empty? }
+  
+  puts "Unknown system call: " + syscall_name unless address
+  
+  address.split[0] if address
+end
+
+
+if ARGV.length != 3
+  puts("./uip <script> <asm file> <binary file>")
+  exit
+end
+
+SCRIPT = ARGV[0]
+ASM_FILE = ARGV[1]
+BIN_FILE = ARGV[2]
+
+FAULTS = ["MFC", "MFLAC", "MVIV", "MVIE", "MIPS", "MIA", "MVAV", "MVAE", "MLPA", "MLOC", "WPFV", "WVIV", "WVAV", "WAEP"]
+
+asm_file_contents = IO.readlines(ASM_FILE + ".h.txt").find_all { |line| !line.grep(/sys_.*>:/).empty? }
+syscalls = parse_strace_output(call_strace(SCRIPT))
+
+#syscalls = [["readlink", 1], ["access", 2], ["_llseek", 3], ["pipe", 4], ["dup2", 5], ["getuid32", 6], ["getgid32", 7], ["geteuid32", 8], ["getegid32", 9]]
+
+addresses = syscalls.map { |syscall| syscall << get_syscall_address(syscall[0], asm_file_contents) }
+for syscall, calls, address in addresses
+  syscall_dir = File.join("faults", syscall)
+  section_file = File.join(syscall_dir, "section_#{syscall}.txt")
+  map_file = File.join(syscall_dir, "map_#{syscall}.txt")
+  File.makedirs(syscall_dir)
+
+  puts " * Creating section file for #{syscall}..."
+  system("wine pa.exe sectionlx #{BIN_FILE} #{section_file} #{address} >/dev/null 2>&1")
+
+  puts " * Creating map file for #{syscall}..."
+  status = system("wine pa.exe map #{ASM_FILE} #{section_file} #{map_file} >/dev/null 2>&1")
+
+  puts " * Creating fault file for #{syscall}..."
+  for fault in FAULTS
+    fault_file = File.join(syscall_dir, "fault_#{syscall}_#{fault}.txt")
+    puts "   - #{fault}..."
+    system("wine pa.exe mkfaults #{ASM_FILE} #{section_file} #{map_file} #{fault_file} #{fault} 99 99 >/dev/null 2>&1")
+  end
+  
+  puts
+end

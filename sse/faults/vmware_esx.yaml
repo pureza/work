@@ -1,0 +1,15 @@
+--- "all_faults.txt"
+--- 9100
+--- 
+192.168.1.50: !ruby/object:VirtualMachine 
+  faulty: true
+  hostname: ubuntu-test1
+  product_server: 192.168.1.36
+  product_username: root
+  vmx: /vmfs/volumes/storage1/ubuntu-test1_1/ubuntu-test1_1.vmx
+192.168.1.51: !ruby/object:VirtualMachine 
+  faulty: false
+  hostname: ubuntu-test2
+  product_server: 192.168.1.36
+  product_username: root
+  vmx: /vmfs/volumes/storage1/ubuntu-test2/ubuntu-test2.vmx

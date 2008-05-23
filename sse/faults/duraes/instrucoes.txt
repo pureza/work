@@ -1,0 +1,75 @@
+A geração de faltload necessita dos seguintes ficheiros:
+----------------
+
+pa.exe (se quiserem podem dar outro nome)
+filtra.exe (nome fixo)
+objdump.exe (nome fixo)
+
+vml (kernel do linux ou outro exe qualquer o nome é variável)
+- este ficheiro nunca pode ter exactamente 8 letras (não é um bug - é uma known feature)
+
+estes ficheiros vão em anexo
+o filtra.exe é um programeco novo para ajudar a compatibilizar o output do código do windows e do kernel do linux.
+
+a geração da fautload para linux envolve a utilização de alguns comandos especificos (os que tem prefixos "lx"), sendo tudo o resto igual ao que já tinha sido anteriormente descrito.
+A sequencia de passo na linha de comandos é a seguinte:
+
+1:
+----------------
+
+pa asmlx <ficheiro-exe> <d-file>
+
+- ficheiro-exe será o kernel do linux (o alvo para a falhas)
+- d-file é a listagem assembly filtrada do ficheiro-exe. Este ficheiro também pode aparecer referido como a-file
+A geração deste ficheiro envolve o objdump.exe e o filtra.exe. é gerado um ficheiro auxiliar d-file.h.txt que é o asm com alguns labels e não é necessário para nada.
+
+2:
+----------------
+
+pa sectionlx <ficheiro-exe> <x-file> <address>
+
+- ficheiro exe é o mesmo ficheiro de há pouco
+- x-file é um ficheiro gerado pelo programa e que contém alguma informação sobre o ficheiro-exe.
+- address é o endereço da função por onde ser quer começar a analisar o código
+
+
+A questão do address é nova na versão para linux , tendo sido debatida entre mim e o Pedro, parecendo-nos a melhor opção para uma solução viável e rápida. Pode-se gerar vários ficheiros map com address diferentes se se pretende analisar código de mais do que uma função. A concatenação dos vários ficheiros pode depois ser usada para o restante do processo. Se acharem que isso faz sentido digam-me qualquer coisa para eu pensar um pouco mais no assunto: há uma hipotese de haver zonas de código que seriam consideradas duas vezes (ex: função que é chamada por várias funções iniciais). Seria necessário filtrar código ends repetidos com um programeca auxiliar. Se não for preciso nada disso, excelente.
+
+
+3:
+----------------
+
+pa map <a-file> <x-file> <m-file>
+
+- a-file é o d-file de há pouco
+- idem para o x-file
+
+- m-file é um ficheiro que descreve a estrutura do código. Este ficheiro é para consumo interno do programa.
+
+este passo gera um ficheiro log que não é particularmente importante mas tem algumas informações uteis para o programador
+
+4:
+----------------
+
+mkfaults <a-file> <x-file> <m-file> <f-file> <ftype> <level> <depth>
+
+isto gera uma faultload para um tipo de falha
+
+-a-file, x-file, m-file são os ficheiros já desdcritos
+
+- f-file é o ficheiro destino onde vão ser descrita as alterações
+- f-type é uma string que indica a letra (ex: MFC, MLOC, etc) o programa indica-as
+- level é o nivel de camada de módulo chama outro módulo.. a que se pretende ir. o ficheiro map tem essa informação que permite ao programa obedecer a esta escolha
+- depth é uma opção que acabou por ser abandonada e neste momento não aconselho a experimentar. Recomendo sempre o valor 99 (um dia ponho isso no programa. um dia...)
+
+pode-se gerar vários ficheiros com ftypes diferentes e construir uma faultload com ais que um tipo de falha concatenando os ficheiros resultantes. nunca meti essa opção no programa por a) outras prioridades no programa, b) fazia isso com um script em batch
+
+
+----------------
+Daqui para a frente é com o injector e o setup experimental
+
+----------------
+
+Experimentei isto com umas funções escolhidas ao calhas e consegui gerar uma fautload. Agora é ver se corre tudo bem desse lado.
+obs: há muias informações apresentadas pelo programa que são apenas para informação de debug. se houver algum erro sério que o programa detecta, essa mensagem distingue-se bem das outras (até porque o programa para logo)
+
