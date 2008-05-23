@@ -1,2 +1,6 @@
 all_faults.txt
 duraes/vmlinux
+duraes/faults/
+duraes/asm
+duraes/asm.h.txt
+
