@@ -12,7 +12,7 @@ require 'barrier.rb'
 CORRECT_RESULT = "12573bcc96fb240ffd5f72e939b7528d"
 
 # Number of seconds the server waits for the VM's answer
-TIMEOUT = 40
+TIMEOUT = 400
 
 # Number of faults to inject per round
 FAULTS_PER_ROUND = 10
@@ -78,11 +78,13 @@ class FaultServer
         @vms_mutex.synchronize {
             throw "Unknown VM connection from '#{ip}'" unless @vms.has_key?(ip)
 
-            if @vms[ip].status == :disconnected
-                @vms[ip].status = :connected
-            else
-                throw "The VM '#{@vms[ip].hostname}' is already connected!"
+            if @vms[ip].status == :connected
+                @vms[ip].reboots += 1
+                @logger.error("#{ip} rebooted by itself #{log_status}")
+                @logger.fatal("#{ip} is not faulty!") if !@vms[ip].faulty?
             end
+
+            @vms[ip].status = :connected
 
             # While we have the lock, let's read some VM properties to use later
             is_faulty = @vms[ip].faulty?
@@ -96,20 +98,20 @@ class FaultServer
                 if is_faulty
                     step = "Sending faults..."
 
-                    to_inject = @faults[@injected_faults .. (@injected_faults + FAULTS_PER_ROUND - 1)] # 3
-                    socket.puts("fault #{to_inject.join("|")}")                      # 4
+                    to_inject = @faults[@injected_faults .. (@injected_faults + FAULTS_PER_ROUND - 1)]
+                    socket.puts("fault #{to_inject.join("|")}")
                     @logger.info("#{ip} faults sent (#{@injected_faults}.." \
                                  "#{@injected_faults + FAULTS_PER_ROUND - 1})")
-                                # "\n\t#{to_inject.join("\n\t")}") # 5
+                                # "\n\t#{to_inject.join("\n\t")}")
                     @injected_faults += to_inject.length
 
                     step = "Faults sent. Waiting for injection confirmation..."
 
                     Timeout::timeout(TIMEOUT) do
-                        injected = socket.gets # 6
+                        injected = socket.gets
 
                         if injected =~ /(\d+) faults injected/ && $1.to_i == FAULTS_PER_ROUND
-                            @logger.info("#{ip} #{$1} faults injected") # 7
+                            @logger.info("#{ip} #{$1} faults injected")
                         else
                             throw "Unexpected value read from socket. Expected " \
                             "was 'faults injected', but received '#{injected}'"
@@ -133,7 +135,7 @@ class FaultServer
                 step = "Workload started! Receiving confirmation from the VM..."
 
                 # Read the result and compare it with the correct one
-                Timeout::timeout(is_faulty ? TIMEOUT : 0) do
+                Timeout::timeout(TIMEOUT) do
                     started = socket.gets
                     if started =~ /started workload/
                         @logger.info("#{ip} started workload")
@@ -189,10 +191,14 @@ class FaultServer
 
     def reboot_vm(ip)
         @vms_mutex.synchronize {
-            output = @vms[ip].reboot()
-            @logger.info("#{ip} reboot #{log_status}")
-            @logger.error("#{ip} vmware-cmd error: #{output}") unless output == ""
-            @logger.fatal("#{ip} is not faulty!") if !@vms[ip].faulty?
+            if @vms[ip].faulty?
+                output = @vms[ip].reboot()
+                @logger.info("#{ip} reboot #{log_status}")
+                @logger.error("#{ip} vmware-cmd error: #{output}") unless output == ""
+            else
+                @logger.fatal("#{ip} is not faulty! The machine is not going " \
+                              "to be rebooted so that you can check what happened.")
+            end
         }
     end
 
@@ -210,7 +216,7 @@ class FaultServer
 end
 
 
-# 
+#
 # Loads the configuration from the given YAML file
 #
 def load_configuration(file)

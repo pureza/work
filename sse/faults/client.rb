@@ -32,7 +32,16 @@ class FaultClient
                 @logger.info("started workload")
                 @socket.puts("started workload")
 
-                result = `bash #{@script}`
+                # Run the workload and save its output to the log
+                result = ""
+                IO.popen("bash #{@script} 2>&1") do |pipe|
+                    @logger.info("Output #{'#' * 40}")
+                    while out = pipe.gets do
+                        @logger.info(" > " + out)
+                        result = out
+                    end
+                    @logger.info("#{'#' * 47}")
+                end
 
                 @logger.info("workload ended with result '#{result}'")
                 @socket.puts(result)
